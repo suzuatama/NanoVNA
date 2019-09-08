@@ -441,6 +441,24 @@ float phase(float *v)
 }
 
 /*
+ * calculate groupdelay
+ */
+float groupdelay(float *v, float deltaf)
+{
+  float *w = &v[2]; // point to next coeff
+#if 1
+  // w = w[0]/w[1]
+  // v = v[0]/v[1]
+  // atan(w)-atan(v) = atan((w-v)/(1+wv))
+  float r = w[0]*v[1] - w[1]*v[0];
+  float i = w[0]*v[0] + w[1]*v[1];
+  return atan2f(r, i) / (2 * M_PI * deltaf);
+#else
+  return (atan2f(w[0], w[1]) - atan2f(v[0], v[1])) / (2 * M_PI * deltaf);
+#endif
+}
+
+/*
  * calculate abs(gamma)
  */
 float linear(float *v)
@@ -502,6 +520,12 @@ trace_into_index(int x, int t, int i, float coeff[2])
     break;
   case TRC_PHASE:
     v = refpos - phase(coeff) * scale;
+    break;
+  case TRC_DELAY:
+    if (i != 100) {
+      float deltaf = frequencies[i+1] - frequencies[i];
+      v = refpos - groupdelay(coeff, deltaf) * scale;
+    }
     break;
   case TRC_LINEAR:
     v = refpos + linear(coeff) * scale;
@@ -614,7 +638,7 @@ gamma2imp(char *buf, int len, const float coeff[2], uint32_t frequency)
 }
 
 static void
-gamma2resistance(char *buf, int len, const float coeff[2], uint32_t frequency)
+gamma2resistance(char *buf, int len, const float coeff[2])
 {
   float z0 = 50;
   float d = z0 / ((1-coeff[0])*(1-coeff[0])+coeff[1]*coeff[1]);
@@ -623,7 +647,7 @@ gamma2resistance(char *buf, int len, const float coeff[2], uint32_t frequency)
 }
 
 static void
-gamma2reactance(char *buf, int len, const float coeff[2], uint32_t frequency)
+gamma2reactance(char *buf, int len, const float coeff[2])
 {
   float z0 = 50;
   float d = z0 / ((1-coeff[0])*(1-coeff[0])+coeff[1]*coeff[1]);
@@ -632,7 +656,7 @@ gamma2reactance(char *buf, int len, const float coeff[2], uint32_t frequency)
 }
 
 static void
-trace_get_value_string(int t, char *buf, int len, float coeff[2], uint32_t frequency)
+trace_get_value_string(int t, char *buf, int len, float coeff[2], int i)
 {
   float v;
   switch (trace[t].type) {
@@ -647,6 +671,13 @@ trace_get_value_string(int t, char *buf, int len, float coeff[2], uint32_t frequ
     v = phase(coeff);
     chsnprintf(buf, len, "%.2f" S_DEGREE, v);
     break;
+  case TRC_DELAY:
+    {
+      float deltaf = frequencies[i+1] - frequencies[i];
+      v = groupdelay(coeff, deltaf);
+      string_value_with_prefix(buf, len, v, 's');
+    }
+    break;
   case TRC_LINEAR:
     v = linear(coeff);
     chsnprintf(buf, len, "%.2f", v);
@@ -656,7 +687,7 @@ trace_get_value_string(int t, char *buf, int len, float coeff[2], uint32_t frequ
     chsnprintf(buf, len, "%.2f", v);
     break;
   case TRC_SMITH:
-    gamma2imp(buf, len, coeff, frequency);
+    gamma2imp(buf, len, coeff, frequencies[i]);
     break;
   case TRC_REAL:
     chsnprintf(buf, len, "%.2f", coeff[0]);
@@ -665,10 +696,10 @@ trace_get_value_string(int t, char *buf, int len, float coeff[2], uint32_t frequ
     chsnprintf(buf, len, "%.2fj", coeff[1]);
     break;
   case TRC_R:
-    gamma2resistance(buf, len, coeff, frequency);
+    gamma2resistance(buf, len, coeff);
     break;
   case TRC_X:
-    gamma2reactance(buf, len, coeff, frequency);
+    gamma2reactance(buf, len, coeff);
     break;
   //case TRC_ADMIT:
   case TRC_POLAR:
@@ -733,7 +764,7 @@ clear_markmap(void)
   memset(markmap[current_mappage], 0, sizeof markmap[current_mappage]);
 }
 
-void inline
+void
 force_set_markmap(void)
 {
   memset(markmap[current_mappage], 0xff, sizeof markmap[current_mappage]);
@@ -1354,7 +1385,7 @@ cell_draw_marker_info(int m, int n, int w, int h)
     trace_get_info(t, buf, sizeof buf);
     cell_drawstring_5x7(w, h, buf, xpos, ypos, config.trace_color[t]);
     xpos += 64;
-    trace_get_value_string(t, buf, sizeof buf, measured[trace[t].channel][idx], frequencies[idx]);
+    trace_get_value_string(t, buf, sizeof buf, measured[trace[t].channel][idx], idx);
     cell_drawstring_5x7(w, h, buf, xpos, ypos, config.trace_color[t]);
     j++;
   }    
